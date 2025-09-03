@@ -1,17 +1,34 @@
-#transparent
+#transparent_fixed.py
 import ctypes
 import pygetwindow as gw
 from pywinauto import Application
 
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QLineEdit, QSlider, QPushButton,
-    QVBoxLayout, QHBoxLayout, QMessageBox, QListWidget
+    QVBoxLayout, QHBoxLayout, QMessageBox, QListWidget, QCheckBox
 )
 from PyQt6.QtCore import Qt, QTimer
 
 
-def set_window_transparency(window_title: str, alpha_0_1: float):
-    """Apply transparency to the given window title"""
+# --- Constants and helpers ---
+GWL_EXSTYLE = -20
+WS_EX_LAYERED = 0x00080000
+WS_EX_TRANSPARENT = 0x00000020
+LWA_ALPHA = 0x00000002
+
+def _get_set_window_long_ptr():
+    """Return proper Get/SetWindowLong function depending on platform (32/64-bit)."""
+    if ctypes.sizeof(ctypes.c_void_p) == 8:
+        GetWindowLongPtr = ctypes.windll.user32.GetWindowLongPtrW
+        SetWindowLongPtr = ctypes.windll.user32.SetWindowLongPtrW
+    else:
+        GetWindowLongPtr = ctypes.windll.user32.GetWindowLongW
+        SetWindowLongPtr = ctypes.windll.user32.SetWindowLongW
+    return GetWindowLongPtr, SetWindowLongPtr
+
+
+def set_window_transparency(window_title: str, alpha_0_1: float, click_through: bool = False):
+    """Apply transparency to the given window title, preserving interactivity unless click-through enabled."""
     try:
         all_titles = [t for t in gw.getAllTitles() if t]
         match = [t for t in all_titles if window_title.lower() in t.lower()]
@@ -29,13 +46,45 @@ def set_window_transparency(window_title: str, alpha_0_1: float):
         window.set_focus()
         hwnd = window.handle
 
-        # WS_EX_LAYERED | WS_EX_TRANSPARENT
-        ctypes.windll.user32.SetWindowLongW(hwnd, -20, 0x80000 | 0x20)
-        ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, 0, int(alpha_0_1 * 255), 2)
+        # Preserve existing extended styles and add/remove flags safely
+        GetWindowLongPtr, SetWindowLongPtr = _get_set_window_long_ptr()
+        exstyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE)
+
+        # Always layered for alpha
+        exstyle |= WS_EX_LAYERED
+
+        # Only make click-through if explicitly requested
+        if click_through:
+            exstyle |= WS_EX_TRANSPARENT
+        else:
+            exstyle &= ~WS_EX_TRANSPARENT
+
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, exstyle)
+
+        # Apply alpha (0..1 -> 0..255)
+        a = max(0, min(1, float(alpha_0_1)))
+        ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, 0, int(a * 255), LWA_ALPHA)
+
+        # Nudge the window so the new style is honored immediately
+        SWP_NOMOVE = 0x0002
+        SWP_NOSIZE = 0x0001
+        SWP_NOZORDER = 0x0004
+        SWP_FRAMECHANGED = 0x0020
+        ctypes.windll.user32.SetWindowPos(
+            hwnd, 0, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
+        )
+
+        # If fully opaque and not click-through, drop LAYERED to avoid edge cases
+        if a >= 0.995 and not click_through:
+            exstyle &= ~WS_EX_LAYERED
+            SetWindowLongPtr(hwnd, GWL_EXSTYLE, exstyle)
+
     except Exception as e:
         raise RuntimeError(str(e))
 
 
+# --- GUI Widget ---
 class TransparencyWidget(QWidget):
     def __init__(self):
         super().__init__()
@@ -58,6 +107,10 @@ class TransparencyWidget(QWidget):
 
         layout.addWidget(QLabel("Transparency (%)"))
         layout.addWidget(self.slider)
+
+        # Click-through option
+        self.clickthrough_cb = QCheckBox("Click-through (ignore mouse & keyboard)")
+        layout.addWidget(self.clickthrough_cb)
 
         # Apply button
         self.apply_btn = QPushButton("Apply Transparency")
@@ -97,9 +150,13 @@ class TransparencyWidget(QWidget):
             return
 
         alpha = self.slider.value() / 100.0
+        click_through = self.clickthrough_cb.isChecked()
         try:
-            set_window_transparency(title, alpha)
-            QMessageBox.information(self, "Done", f"Transparency set to {self.slider.value()}% for '{title}'.")
+            set_window_transparency(title, alpha, click_through)
+            msg = f"Transparency set to {self.slider.value()}% for '{title}'."
+            if click_through:
+                msg += "\n(Note: Window is now click-through!)"
+            QMessageBox.information(self, "Done", msg)
         except RuntimeError as e:
             QMessageBox.critical(self, "Error", str(e))
 

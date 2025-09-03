@@ -34,12 +34,27 @@ def mute_system_volume():
 
 
 def close_specified_apps(close_list):
-    for process in psutil.process_iter(attrs=['pid', 'name']):
+    close_list = [x.lower() for x in close_list]  # normalize
+
+    for window in gw.getAllWindows():
         try:
-            if any(app.lower() in (process.info['name'] or "").lower() for app in close_list):
-                os.kill(process.info['pid'], 9)
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            if not window.title.strip():
+                continue
+
+            title = window.title.lower()
+            if any(app in title for app in close_list):  # match by title
+                pid = window._hWnd  # window handle
+                import win32process, win32con, win32gui
+                _, proc_id = win32process.GetWindowThreadProcessId(window._hWnd)
+                if proc_id:
+                    try:
+                        proc = psutil.Process(proc_id)
+                        proc.kill()  # force close
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+        except Exception:
             pass
+
 
 
 class MinimizerWidget(QWidget):
@@ -110,10 +125,10 @@ class MinimizerWidget(QWidget):
 
     def bind_hotkey(self):
         if not self._hotkey_bound:
-            keyboard.add_hotkey("numlock", lambda: minimize_all_windows(self._excluded_apps()))
+            keyboard.add_hotkey("numlock", lambda: (minimize_all_windows(self._excluded_apps()),mute_system_volume(),close_specified_apps(self._close_apps())))
             self._hotkey_bound = True
             self._update_status()
-# need to change
+
     def unbind_hotkey(self):
         if self._hotkey_bound:
             try:
