@@ -113,7 +113,7 @@ class MinimizerWidget(QWidget):
             keyboard.add_hotkey("numlock", lambda: minimize_all_windows(self._excluded_apps()))
             self._hotkey_bound = True
             self._update_status()
-
+# need to change
     def unbind_hotkey(self):
         if self._hotkey_bound:
             try:
@@ -129,14 +129,11 @@ class MinimizerWidget(QWidget):
         )
 
     def _update_apps_list(self):
-        """Refresh the list of running apps"""
         self.apps_list.clear()
-        seen = set()
-        for process in psutil.process_iter(attrs=['name']):
-            name = process.info['name']
-            if name and name not in seen:
-                self.apps_list.addItem(name)
-                seen.add(name)
+        titles = [t for t in gw.getAllTitles() if t.strip()]
+        for t in titles:
+            self.apps_list.addItem(t)
+
 
     def add_to_inputs(self, item):
         """Double-click adds app name to 'Apps to Close' input"""
