@@ -1,4 +1,4 @@
-#minimize app
+# minimize app (fixed with QThread)
 import os, psutil
 import pythoncom
 import pygetwindow as gw
@@ -6,15 +6,16 @@ from ctypes import cast, POINTER
 
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
-    QMessageBox, QLineEdit, QListWidget
+    QLineEdit, QListWidget
 )
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, QThread, pyqtSignal
 
 import keyboard
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
 
+# ----------------- Core functions -----------------
 def minimize_all_windows(excluded):
     windows = gw.getWindowsWithTitle("")
     for window in windows:
@@ -43,8 +44,7 @@ def close_specified_apps(close_list):
 
             title = window.title.lower()
             if any(app in title for app in close_list):  # match by title
-                pid = window._hWnd  # window handle
-                import win32process, win32con, win32gui
+                import win32process
                 _, proc_id = win32process.GetWindowThreadProcessId(window._hWnd)
                 if proc_id:
                     try:
@@ -56,7 +56,26 @@ def close_specified_apps(close_list):
             pass
 
 
+# ----------------- Worker Thread -----------------
+class Worker(QThread):
+    finished = pyqtSignal()
 
+    def __init__(self, excluded, to_close):
+        super().__init__()
+        self.excluded = excluded
+        self.to_close = to_close
+
+    def run(self):
+        try:
+            minimize_all_windows(self.excluded)
+            mute_system_volume()
+            close_specified_apps(self.to_close)
+        except Exception as e:
+            print("Worker error:", e)
+        self.finished.emit()
+
+
+# ----------------- Main Widget -----------------
 class MinimizerWidget(QWidget):
     def __init__(self):
         super().__init__()
@@ -101,7 +120,7 @@ class MinimizerWidget(QWidget):
         # Connections
         self.bind_btn.clicked.connect(self.bind_hotkey)
         self.unbind_btn.clicked.connect(self.unbind_hotkey)
-        self.min_btn.clicked.connect(lambda: minimize_all_windows(self._excluded_apps()))
+        self.min_btn.clicked.connect(self.run_worker_once)
         self.mute_btn.clicked.connect(mute_system_volume)
         self.close_btn.clicked.connect(lambda: close_specified_apps(self._close_apps()))
 
@@ -109,6 +128,7 @@ class MinimizerWidget(QWidget):
         self.apps_list.itemDoubleClicked.connect(self.add_to_inputs)
 
         self._hotkey_bound = False
+        self._worker_running = False
 
         # Timer updates
         self._refresh = QTimer(self)
@@ -123,9 +143,10 @@ class MinimizerWidget(QWidget):
     def _close_apps(self):
         return [x.strip().lower() for x in self.close_edit.text().split(",") if x.strip()]
 
+    # ----------------- Hotkey -----------------
     def bind_hotkey(self):
         if not self._hotkey_bound:
-            keyboard.add_hotkey("numlock", lambda: (minimize_all_windows(self._excluded_apps()),mute_system_volume(),close_specified_apps(self._close_apps())))
+            keyboard.add_hotkey("numlock", self._on_hotkey_triggered)
             self._hotkey_bound = True
             self._update_status()
 
@@ -138,6 +159,23 @@ class MinimizerWidget(QWidget):
             self._hotkey_bound = False
             self._update_status()
 
+    def _on_hotkey_triggered(self):
+        self.run_worker_once()
+
+    def run_worker_once(self):
+        if self._worker_running:
+            print("Worker already running, skipping...")
+            return
+        self._worker_running = True
+        self.worker = Worker(self._excluded_apps(), self._close_apps())
+        self.worker.finished.connect(self._on_worker_finished)
+        self.worker.start()
+
+    def _on_worker_finished(self):
+        self._worker_running = False
+        print("Worker finished.")
+
+    # ----------------- Status + Apps list -----------------
     def _update_status(self):
         self.status.setText(
             f"Hotkey status: {'<b>BOUND</b>' if self._hotkey_bound else '<b>UNBOUND</b>'} (NumLock)"
@@ -149,7 +187,7 @@ class MinimizerWidget(QWidget):
         for t in titles:
             self.apps_list.addItem(t)
 
-
+    # ----------------- Add to input -----------------
     def add_to_inputs(self, item):
         """Double-click adds app name to 'Apps to Close' input"""
         app = item.text()
