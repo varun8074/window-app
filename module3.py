@@ -24,6 +24,30 @@ class AutoClicker(QWidget):
         row.addWidget(self.spin)
         layout.addLayout(row)
 
+        # 🔹 Style to make the up/down buttons bigger & visible
+        self.spin.setStyleSheet("""
+            QDoubleSpinBox {
+                font-size: 14px;
+                padding-right: 20px;  /* space for buttons */
+            }
+            QDoubleSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 20px;
+                height: 20px;
+            }
+            QDoubleSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 20px;
+                height: 20px;
+            }
+            QDoubleSpinBox::up-arrow, QDoubleSpinBox::down-arrow {
+                width: 10px;
+                height: 10px;
+            }
+        """)
+
         self.start_btn = QPushButton("Start")
         self.stop_btn = QPushButton("Stop")
         layout.addWidget(self.start_btn)
