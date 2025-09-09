@@ -33,7 +33,7 @@ class MyApp(QWidget):
             "Window Minimizer / Closer": ("icons/monitor.svg", module2.main),
             "Auto Mouse Clicker": ("icons/mouse-pointer.svg", module3.main),
             "Mouse Recorder & Replayer": ("icons/play-circle.svg", module4.main),
-            "Scroll Counter": ("icons/image.png", module5.main),
+            "Scroll Counter": ("icons/mouse-scroll.svg", module5.main),
             "Window Transparency Setter": ("icons/droplet.svg", module6.main),
             "Long Right-Click Action": ("icons/zap.svg", module7.main),
         }
@@ -50,7 +50,7 @@ class MyApp(QWidget):
             btn.setStyleSheet("""
                 QPushButton {
                     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                                stop:0 #34495e, stop:1 #2c3e50);
+                                                stop:0 #56789c, stop:1 #34495e);
                     color: #ecf0f1;
                     font-size: 14px;
                     text-align: left;
