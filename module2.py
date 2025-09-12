@@ -146,21 +146,32 @@ class MinimizerWidget(QWidget):
     # ----------------- Hotkey -----------------
     def bind_hotkey(self):
         if not self._hotkey_bound:
-            keyboard.add_hotkey("numlock", self._on_hotkey_triggered)
-            self._hotkey_bound = True
-            self._update_status()
+            try:
+                # Save the hotkey id so we can unbind it safely later
+                self._hotkey_id = keyboard.add_hotkey(
+                    "numlock", self._on_hotkey_triggered, suppress=False
+                )
+                self._hotkey_bound = True
+                self._update_status()
+            except Exception as e:
+                print("Failed to bind hotkey:", e)
 
     def unbind_hotkey(self):
         if self._hotkey_bound:
             try:
-                keyboard.remove_hotkey("numlock")
-            except KeyError:
-                pass
+                keyboard.remove_hotkey(self._hotkey_id)
+            except Exception as e:
+                print("Failed to unbind hotkey:", e)
             self._hotkey_bound = False
             self._update_status()
 
     def _on_hotkey_triggered(self):
-        self.run_worker_once()
+        try:
+            print("NumLock hotkey pressed")
+            self.run_worker_once()
+        except Exception as e:
+            # Prevent crash if something goes wrong
+            print("Hotkey callback error:", e)
 
     def run_worker_once(self):
         if self._worker_running:
@@ -198,7 +209,10 @@ class MinimizerWidget(QWidget):
             self.close_edit.setText(app)
 
     def closeEvent(self, e):
-        if self._hotkey_bound:
+        # Only unbind if the entire app is quitting, 
+        # not when just switching modules in main.py
+        from PyQt6.QtWidgets import QApplication
+        if QApplication.instance().closingDown() and self._hotkey_bound:
             self.unbind_hotkey()
         return super().closeEvent(e)
 
